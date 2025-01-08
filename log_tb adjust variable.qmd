@@ -1,0 +1,732 @@
+---
+title: "Data Analysis"
+author: "GROUP 2"
+date: 31 December 2024
+format:
+  html:
+    toc: true
+    toc-title: Contents
+    toc-location: left
+    toc-depth: 3
+    toc-expand: 1
+    number-sections: true
+    code-fold: true
+    code-summary: "Show the Code"
+    theme:
+      light: united
+      dark: cyborg
+editor: visual
+warning: false 
+---
+
+# Group members
+
+1.  Abdul Mukmin Bin Mohamed Aminuddin
+2.  Aina Syazwani Binti Aziz
+3.  Mohd Khairi Safwan Bin Johari
+4.  Mohd Khairul Hanan Bin Mohd Wajiah
+5.  Muhammad Aminuddin Bin Che Hashim
+
+```{r}
+library (magick)
+
+# Create the path with file.path()
+image_path <- file.path("C:", "Users", "ACER", "Downloads", "outeam2.png")
+image <- image_read(image_path)
+print(image)
+
+```
+
+# Introduction to dataset.
+
+We will be using dataset from MPH study. This study is aimed to determine the factors associate with unfavorable outcome among Pulmonary Tuberculosis patients in Kelantan over 10 years.
+
+# Research Question
+
+What are the factors associated with unfavorable outcomes among Pulmonary Tuberculosis patients in Kelantan over 10 years?
+
+# Dataset description:
+
+-   Umur(tahun): Age of cases in years
+-   Gender: Gender of cases (Male, Female)
+-   Smoking: Smoking status of cases (Yes= Smoker, No= Non-Smoker)
+-   HIV status: HIV status of cases(Positive, Negative, Not Done)
+-   CXR: CXR result (No lesion, Minimal, Moderately Advanced, Far Advanced)
+-   MDR status: Yes, No
+-   DOTs: Method of DOTs (Healthcare Worker, Family Members)
+-   Outcomes: Unfavourable, Favourable
+
+# Prepare environment / Load libraries
+
+```{r}
+library(readr)
+library(tidyverse)
+library(broom)
+library(gtsummary)
+library(gt)
+library(caret)
+library(janitor)
+library(ResourceSelection)
+library(corrplot)
+library(dagitty)
+library(cardx)
+library(ggdag)
+library (equatiomatic)
+```
+
+
+# Reading and importing dataset
+
+```{r}
+tb1 <- readxl::read_excel("For Analysis.xlsx")
+view (tb1)
+```
+
+# View Data
+
+```{r}
+summary(tb1)
+```
+
+# Data Wrangling
+
+## Cleaning variables name for easy analysis
+
+```{r}
+tb1 <-clean_names(tb1)
+glimpse(tb1)
+```
+
+## Change character variables to factor
+
+
+```{r}
+tb1<- 
+tb1 %>%
+  mutate(across(where(is.character), as_factor))
+summary(tb1)
+```
+
+# Describe Data
+
+## Table summary of dataset
+
+```{r}
+tb1 %>% tbl_summary( label = list( umur_tahun ~
+"Umur"
+, gender ~
+"gender"
+, smoking ~
+"Smoking Status"
+, cxr ~
+"CXR at Diagnosis"
+, hiv_status ~
+"HIV Status"
+, mdr_status ~
+"MDR Status"
+, do_ts ~
+"DOTS Method"
+, outcomes ~
+"Pulmonary TB Outcomes"
+), statistic = list( all_continuous() ~
+"{mean} ({sd})"
+) ) %>% bold_labels() %>% italicize_levels() %>% as_gt() %>% gt::tab_header( title =
+"Characteristic of sample population"
+)
+```
+
+## Table summary according to Pulmonary TB outcomes
+
+```{r}
+tab_outcome <- tb1 %>% 
+  tbl_summary(
+    by = outcomes,
+    label = list(
+      umur_tahun ~ "Umur",
+      gender ~ "Gender",
+      smoking ~ "Smoking Status",
+      cxr ~ "CXR at Diagnosis",
+      hiv_status ~ "HIV Status",
+      mdr_status ~ "MDR Status",
+      do_ts ~ "DOTS Method"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} / {N} ({p}%)"
+    ),
+    digits = all_continuous() ~ 2
+  ) %>%
+  modify_caption("Characteristic (N = {N})")
+
+tab_outcome %>%
+  as_gt()
+```
+
+# Explore data
+
+## Plots
+
+Histogram for numerical variables and barplot for categorical variables
+
+-   Numerical variables: Age
+-   Categorical variables: Gender, smoking, cxr, hiv status, mdr status, dots, outcomes
+
+### Numerical variables
+
+```{r}
+tb1 %>% 
+  ggplot(aes(umur_tahun))+
+  geom_histogram()+
+  facet_grid(.~outcomes)
+```
+
+### Categorical variables
+
+1.  Outcomes
+
+```{r}
+ggplot(tb1) +
+  geom_bar(aes(outcomes)) +
+  theme_bw()
+```
+
+2.  Gender
+
+```{r}
+tb1%>% 
+  ggplot(aes(gender)) + 
+  geom_bar() +
+  facet_grid(. ~ outcomes)
+```
+
+3.  Smoking
+
+```{r}
+tb1%>% 
+  ggplot(aes(smoking)) + 
+  geom_bar() +
+  facet_grid(. ~ outcomes)
+```
+
+4.  cxr
+
+```{r}
+tb1%>% 
+  ggplot(aes(cxr)) + 
+  geom_bar() +
+  facet_grid(. ~ outcomes)
+```
+
+5.  hiv status
+
+```{r}
+tb1%>% 
+  ggplot(aes(hiv_status)) + 
+  geom_bar() +
+  facet_grid(. ~ outcomes)
+```
+
+6.  mdr status
+
+```{r}
+tb1%>% 
+  ggplot(aes(mdr_status)) + 
+  geom_bar() +
+  facet_grid(. ~ outcomes)
+```
+
+7.  dots
+
+```{r}
+tb1%>% 
+  ggplot(aes(do_ts)) + 
+  geom_bar() +
+  facet_grid(. ~ outcomes)
+```
+
+# Confounder and mediator
+
+## Causal diagram
+
+we will create causal pathway to see the direct and indirect effect of variables/exposure towards the outcomes.
+
+```{r}
+library(dagitty)
+
+tbdag <- dagitty("
+dag {
+  bb=\"-4.419,-3.677,6.635,3.425\"
+  Age [pos=\"0.268,2.062\"]
+  Smoking [pos=\"0.766,-2.573\"]
+  TB_outcome [outcome,pos=\"5.381,-0.483\"]
+  cxr [pos=\"2.561,2.101\"]
+  dots_method [pos=\"-1.399,-2.171\"]
+  gender [pos=\"-2.225,1.815\"]
+  hiv_status [exposure,pos=\"-3.351,0.348\"]
+  mdr_status [pos=\"3.259,-2.534\"]
+  Age -> Smoking
+  Age -> TB_outcome
+  Smoking -> TB_outcome
+  cxr -> Smoking
+  cxr -> TB_outcome
+  dots_method -> TB_outcome
+  gender -> Smoking
+  gender -> TB_outcome
+  hiv_status -> Smoking
+  hiv_status -> TB_outcome
+  hiv_status -> dots_method
+  hiv_status -> mdr_status
+  mdr_status -> TB_outcome
+}
+")
+
+plot(tbdag)
+
+
+```
+
+From the causal diagram, the exposure studied is HIV Status and the outcome of interest is TB_outcome.
+
+We identified that variables HIV status, age, gender and CXR at diagnosis as confounders and dots_method, mdr_Status, smoking and as mediators.
+
+# Estimate the Regression Parameters
+
+Using simple binary logistic regression and multiple binary regression, we can estimate the regression parameters or the log odds in the dataset where the outcome follows binomial or bernoulli distribution.
+
+## Simple Logistic Regression
+
+Outcome : Unfavorable outcome of Pulmonary TB 
+
+Based on literature review and expert consultation, these are potential risk factors for unfavorable outcome of Pulmonary TB in Kelantan over 10 years
+
+Numerical: Age 
+Categorical: Hiv status, Mdr status, Dots method, smoking, CXR at diagnosis and gender
+
+1.  Age
+
+```{r}
+slr.umur <- glm(outcomes ~ umur_tahun, family = binomial(link = 'logit'), 
+                  data = tb1)
+summary(slr.umur)
+
+```
+
+2.  Gender
+
+```{r}
+slr.gender <- glm(outcomes ~ gender, family = binomial(link = 'logit'), 
+                  data = tb1)
+summary(slr.gender)
+```
+
+3.  Smoking
+
+```{r}
+slr.smoking <- glm(outcomes ~ smoking, family = binomial(link = 'logit'), 
+                  data = tb1)
+summary(slr.smoking)
+
+```
+
+4.  CXR
+
+```{r}
+slr.cxr <- glm(outcomes ~ cxr, family = binomial(link = 'logit'), 
+                  data = tb1)
+summary(slr.cxr)
+
+```
+
+5.  HIV status
+
+```{r}
+slr.hiv <- glm(outcomes ~ hiv_status, family = binomial(link = 'logit'), 
+                  data = tb1)
+summary(slr.hiv)
+```
+
+6.  Dots
+
+```{r}
+slr.dots <- glm(outcomes ~ do_ts, family = binomial(link = 'logit'), 
+                  data = tb1)
+summary(slr.dots)
+```
+
+7.  MDR status
+
+```{r}
+slr.mdr <- glm(outcomes ~ mdr_status, family = binomial(link = 'logit'), 
+                  data = tb1)
+summary(slr.mdr)
+```
+
+Here we use likelihood ratio test (LRT) to obtain P-values. We start with an intercept only model and then test each predictor one by one.
+
+```{r}
+slr.tbfull <- glm(outcomes ~ 1, data = tb1, family = binomial(link = "logit"))
+add1(slr.tbfull,scope = ~ umur_tahun + smoking + cxr + gender + mdr_status + do_ts + hiv_status , test = "LRT")
+```
+
+```{r}
+summary(slr.tbfull)
+```
+
+## Table for Simple Logistic Regression
+
+This is univariable logistic regression table summary includes all the variable. This is useful if our aim is exploratory research.
+
+```{r}
+tbl_uvregression(
+  data = tb1,
+  method = glm,
+  y = outcomes,
+  include = c( umur_tahun, smoking, gender, cxr, hiv_status, mdr_status, do_ts), # List variables to include
+  method.args = list(family = binomial)
+) %>%        
+  bold_labels() %>%
+  italicize_levels() %>%
+  as_gt() %>%
+  gt::tab_header(title = "Table 1. Simple Logistic Regression")
+```
+
+```{r}
+tbl_uvregression(
+  data = tb1,
+  method = glm,
+  y = outcomes,
+  include = c(smoking, gender, cxr, hiv_status, mdr_status, do_ts), # List variables to include
+  method.args = list(family = binomial),exponentiate = TRUE) %>%        
+  bold_labels() %>%
+  italicize_levels() %>%
+  as_gt() %>%
+  gt::tab_header(title = "Table 1. Simple Logistic Regression")
+
+```
+
+# Multiple Logistic Regression
+
+## Model 1: Model without interaction
+
+Outcome: Unfavourable outcome of Pulmonary Tuberculosis
+
+According to literature review and based on causal diagram, these are the potential factors associated for unfavourable TB outcome
+
+Numerical IV: age
+
+Categorical IV : gender, HIV status and CXR, MDR Status 
+
+```{r}
+mlr.tb <- glm(outcomes ~ cxr + hiv_status + gender + umur_tahun + mdr_status , family = binomial(link="logit"), data = tb1)
+summary(mlr.tb)
+```
+
+```{r}
+tidy(mlr.tb) #log odds
+```
+
+```{r}
+tidy(mlr.tb, exponentiate = TRUE) # odds ratio
+```
+
+```{r}
+tbl_regression(mlr.tb) %>%
+  add_n(location = "level") %>%
+  bold_labels()%>%
+  italicize_levels()
+```
+
+```{r}
+tbl_regression(mlr.tb, exponentiate = TRUE) %>%
+  add_n(location = "level") %>%
+  bold_labels()%>%
+  italicize_levels()
+```
+
+## Model 2: Model with interaction
+
+Outcome: Unfavourable outcome of Pulmonary Tuberculosis
+
+Numerical IV: age
+
+Categorical IV : Smoking,gender, DOTS_method, Hiv status, MDR status and CXR
+
+Interaction: Hiv status With cxr at diagnosis
+
+```{r}
+mlr.tb.int <- glm(outcomes ~ cxr + hiv_status + gender + umur_tahun + mdr_status + hiv_status:cxr, family = binomial(link="logit"), data = tb1)
+summary(mlr.tb.int)
+```
+
+```{r}
+tidy(mlr.tb.int)
+```
+
+```{r}
+tidy(mlr.tb.int, exponentiate = TRUE)
+```
+
+# Model Selection
+
+Model 1 and Model 2, need to compare with anova test
+
+```{r}
+anova(mlr.tb, mlr.tb.int, test = 'Chisq')
+```
+
+From ANOVA the p-value (Pr(\>Chi)) is greater than the typical significance level of 0.05. This suggest there is no difference between the two models.
+
+Hence, we choose multivariable model 1 (mlr.tb) as our preliminary Final Model for Logistic Regression due to model with the least variable is parsimonious model. Model 1 has the outcome (outcomes = favorable/unfavorable) and the exposure is Hiv status(hiv_status), mdr_Status along with other confounder (gender, age and CXR
+
+# Prediction
+
+For prediction:
+
+Predicted log odds
+
+Now, our preliminary final model is (mlr.tb)
+
+```{r}
+final.model <- glm(outcomes ~ umur_tahun + gender + cxr + hiv_status + mdr_status, family = binomial, data = tb1)
+
+```
+
+To recall the log odds,
+
+```{r}
+tidy(final.model, conf.int=TRUE)
+```
+
+To recall the odds
+
+```{r}
+tidy(final.model, exponentiate = TRUE, conf.int = TRUE)
+```
+## Predict the log odds
+
+```{r}
+log_odds_fm <- augment(final.model)
+```
+
+Using slice() function to see the snapshot of the data. We choose the first 10 patients.
+
+```{r}
+log_odds_fm %>%  slice(1:10)
+```
+## Predict the probabilities
+
+```{r}
+prob_fm <- augment(final.model, type.predict = "response")
+prob_fm %>% slice(1:10)
+```
+
+
+# Model Checking
+
+## Check overall fitness:
+
+1.  Accuracy
+2.  Sensitivity
+3.  Specificity
+
+```{r}
+final.m.prob <- 
+  augment(final.model, type.predict = 'response') %>%
+  mutate(pred.class = factor(ifelse(.fitted > 0.5, 'Unfavorable', 'Favorable')))
+library(caret)
+```
+
+```{r}
+confusionMatrix(final.m.prob$outcomes, final.m.prob$pred.class)
+```
+
+The model has an overall accuracy of 79.44% (95% CI 77.11, 81.64), preliminary final model able to predict correctly 79.44% of the cases.
+
+Sensitivity (True Positive Rate) is relatively high at 80.71%, indicating that the model is very good at capturing all positive cases.
+
+Specificity (True Negative Rate) is low at 52.63%, indicating poor performance in correctly identifying negative cases.
+
+# Linearity in logits
+
+Numerical covariate should be checked for linearity in logits: umur_tahun
+```{r}
+library(mfp)
+```
+
+
+```{r}
+library (mfp)
+lin.umur <- mfp(outcomes ~ fp(umur_tahun), family = binomial(link = 'logit'), data = tb1, verbose = T)
+```
+The transition from null model to the linear model indicates there is slight improvement in fit by adding the predictor variables. The final model deviance shows that the additional transformation by fractional polynomial only lead to a slight improvement in fit.
+
+
+```{r}
+summary(lin.umur)
+```
+
+The residual deviance is nearly identical to the null deviance, suggesting the inclusion of this variable does not explain much variation in the outcome.
+
+# Checking Goodness of fit test
+
+## Hosmer-Lemeshow test
+
+```{r}
+library(generalhoslem)
+```
+
+````{r}
+#Fit the model
+final.model <- glm(outcomes ~ umur_tahun + cxr + hiv_status + gender + mdr_status , family = binomial, data = tb1_complete)
+
+logitgof(tb1_complete$tb, fitted(final.model), g = 10)
+
+```
+Since the p-value is greater than 0.05 in the Hosmer-Lemeshow test, the model is fit.
+
+## Area under the Curve (ROC)
+
+```{r}
+library(pROC)
+
+# Ensure 'final.m.prob$tb1' is your binary outcome (0 or 1) and '.fitted' is the predicted probabilities
+par(pty = "s")  # Set plot aspect ratio to square
+
+roc_curve <- roc(
+  response = final.m.prob$outcomes,      # Binary outcome variable
+  predictor = final.m.prob$.fitted, # Predicted probabilities
+  plot = TRUE,                      # Plot the ROC curve
+  legacy.axes = TRUE,               # Use legacy axis labeling
+  col = "black",                    # Set line color to black
+  lwd = 4,                          # Line width
+  print.auc = TRUE,                 # Print AUC on the plot
+  ci = TRUE,                        # Calculate and display confidence intervals for AUC
+  main = "ROC"                      # Title of the plot
+)
+
+```
+```{r}
+auc(roc_curve)
+```
+
+
+AUC-ROC is 70.3% (95% CI:66.7, 73.9), suggests that the model has moderate discriminatory power in distinguishing between positive and negative outcomes
+
+Hence, all of above goodness of fit test shows that our model (final.model) has good fit.
+
+# Diagnostic Plot
+
+We can visualize any influential outliers from these diagnostic plots for final model (final.mod).
+
+```{r}
+plot(final.model)
+```
+
+# Identify Influential outliers
+
+First, we need to identify influentials outliers, and we will attempt to remove those outliers and reperform the goodness of fit test for the filtered data.
+
+One of the method to remove outliers is by setting the threshold for Cook’s Distance deviations
+
+
+We use augment () to generate the residuals  values.
+
+```{r}
+infl <- influence.measures(final.model)
+```
+
+```{r}
+data2.pred.res <- augment(final.model)
+data2.pred.res
+```
+
+Method : Standardized residuals
+Keep standardized residuals between 2 and -2 (values above 2 or lower than −2 considered as influential observations)
+
+```{r}
+non.influen.obs <- data2.pred.res %>% filter(.std.resid <
+2 & .std.resid > -2
+)
+```
+
+Re-run the Model with the non-influential observations (final model)
+
+```{r}
+
+final_model_new <- glm(outcomes ~ umur_tahun + gender + cxr + hiv_status + mdr_status,
+                   data = non.influen.obs,
+                   family = binomial)
+summary(final_model_new)
+```
+
+# Diagnoctic plot after removal of influential observation
+
+```{r}
+plot(final_model_new)
+```
+
+
+# Presentation
+
+```{r}
+tbl_regression(final_model_new) %>%
+bold_labels() %>% italicize_levels() %>%
+as_gt() %>%
+gt::tab_header(title = "Multiple Logistic Regression Model",
+subtitle = "Without Interaction")
+```
+
+
+```{r}
+# Create regression table
+gt_table_multivariable <- 
+  tbl_regression(final_model_new, exponentiate = TRUE) %>%
+  bold_labels() %>%
+  italicize_levels() %>%
+  as_gt() %>%
+  gt::tab_header(
+    title = "Multiple Logistic Regression Model",
+    subtitle = "Without Interaction"
+  ) %>%
+  gt::tab_footnote(
+    footnote = "Constant = -2.40860"
+  ) %>%
+  gt::tab_footnote(
+    footnote = "No multicollinearity"
+  ) %>%
+  gt::tab_footnote(
+    footnote = "Hosmer-Lemeshow test, p-value = 0.3693"
+  ) %>%
+  gt::tab_footnote(
+    footnote = "Area under Receiver Operating Characteristics (ROC) curve was 70.3%"
+  )
+
+# Print the gt table
+gt_table_multivariable
+```
+
+# Model Equation
+
+```{r}
+extract_eq(final_model_new, use_coefs = TRUE)
+```
+
+Model Equation Unfavorable outcomes = -2.41 + 0.68 (Moderate CXR) + 1.93 (Far Advanced CXR) + 1.85(HIV Positive) - 2.18(HIV Not Done)
+
+# Interpretation
+
+1. Males gender have 41% lower odds of unfavorable PTB outcomes compared to females (OR=0.59, 95% CI:0.41,0.83 , P=0.003)
+
+2. Patient with moderately advanced CXR findings have 3.43 times higher odds of unfavorable PTB outcomes compared to those with minimal findings (OR=3.43, 95% CI;2.40,4.94, P<0.001)
+
+3. Patients with far advanced CXR findings have 12.5 times higher odds of unfavorable PTB outcomes compared to those with minimal findings (OR=12.5, 95% CI:5.82,26.7, p<0.001)
+
+4. HIV Positive patients have 10.2 times higher odds of unfavorable PTB outcomes compared to HIV-negative patients (OR=10.2, 95% CI:6.52, 16.2, p<0.001)
+
+5. Patients with MDR PTB have 12.5 times higher odds of unfavorable outcomes compared to non-MDR patients (OR=12.5, 95%ci:4.96,32.8, p<0.001)
+
+6. Age is not significantly associated with unfavorable PTB outcomes as the p-value >0.05 (OR=1.00 95% CI:0.99,1.01)
+
+# Github repo
+
+feel free to visit our github: https://github.com/drkhairulhanan/multiplelogisticgroup2.git
